@@ -1,0 +1,70 @@
+#
+# This is an example of a Custom Policy Definition file.
+# This file is used by API Platform to:
+# - Auto-generate a configuration UI for your custom policy.
+# - Determine policy dependencies
+#
+# See: https://docs.mulesoft.com/api-manager/applying-custom-policies#policy-definition 
+
+# Name used to describe the policy in API Platform
+name: Custom Policy Example
+
+# A more detailed description of the policy
+description: Specifies an MEL *query* expression which when evaluated against incoming messages and returning true, rejects the incoming message.
+
+# Category is just a plain text used in API Platform to list policies
+category: Security
+
+# True if the policy can work on its own or false if the policy can be 
+# applied only as part of another policy.
+standalone: true
+requiresConnectivity: false
+
+
+# A list of strings that describes characteristics provided by this policy.
+# API Platform uses an indirect dependency mechanisms: policies can provide
+# or require characteristics, the platform will inform you about requirements
+# but it will not force you to use a particular policy
+providedCharacteristics: []
+requiredCharacteristics: []
+
+# This defines custom configuration parameters for your policy template
+configuration:
+  - propertyName: oauthClientID
+    name: Mule Policy Client ID in OAuth provider
+    description: The client ID of the mule policy user maintained in the oauth provider that allows validation calls to me made.
+    allowMultiple: false
+    defaultValue: null
+    optional: false
+    sensitive: true
+    type: string
+  - propertyName: oauthClientSecret
+    name: Mule Policy Client Secret in Oauth Provider
+    description: The client secret of the mule policy user maintained in the oauth provider that allows validation calls to me made.
+    allowMultiple: false
+    defaultValue: null
+    optional: false
+    sensitive: true
+    type: string
+  - propertyName: validationURL
+    name: Validation URL
+    description: The oauth provider endpoint to which oauth token validation requests should be sent.
+    type: string
+    optional: false
+    sensitive: false
+    allowMultiple: false
+  - propertyName: oauthGrantType
+    name: Validation Grant Type
+    description: The grant type to be specified in the validation request to ping.
+    type: string
+    optional: false
+    sensitive: false
+    allowMultiple: false
+  - propertyName: validationCacheTTL
+    name: Validation token cache TTL
+    description: Time in ms for which the validation response from the Oauth provider should be cached.
+    type: int
+    defaultValue: 6000000
+    optional: true
+    sensitive: false
+    allowMultiple: false

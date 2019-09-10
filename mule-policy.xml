@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<mule-policy xmlns="http://www.mulesoft.com/tooling/project" runtimeId="org.mule.tooling.server.3.9.2.ee" schemaVersion="5.3.0.0">
+    <name>anypointmq-custom-policy</name>
+    <description></description>
+    <xmlFileName>anypointmq-custom-policy.xml</xmlFileName>
+    <yamlFileName>anypointmq-custom-policy.yaml</yamlFileName>
+</mule-policy>

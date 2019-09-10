@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<policy xmlns="http://www.mulesoft.org/schema/mule/policy"
+		xmlns:dw="http://www.mulesoft.org/schema/mule/ee/dw"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns:http="http://www.mulesoft.org/schema/mule/http"
+        xmlns:spring="http://www.springframework.org/schema/beans"
+        xmlns:mule="http://www.mulesoft.org/schema/mule/core"
+        xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+        xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+        xmlns:mule-ss="http://www.mulesoft.org/schema/mule/spring-security"
+        xmlns:ss="http://www.springframework.org/schema/security"
+        xmlns:api-platform-gw="http://www.mulesoft.org/schema/mule/api-platform-gw"
+        xsi:schemaLocation="http://www.mulesoft.org/schema/mule/policy http://www.mulesoft.org/schema/mule/policy/current/mule-policy.xsd
+              http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+              http://www.mulesoft.org/schema/mule/spring-security http://www.mulesoft.org/schema/mule/spring-security/current/mule-spring-security.xsd
+              http://www.springframework.org/schema/security http://www.springframework.org/schema/security/spring-security-current.xsd
+              http://www.mulesoft.org/schema/mule/api-platform-gw http://www.mulesoft.org/schema/mule/api-platform-gw/current/mule-api-platform-gw.xsd
+              http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+              http://www.mulesoft.org/schema/mule/ee/dw http://www.mulesoft.org/schema/mule/ee/dw/current/dw.xsd
+              http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+              http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+              http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd">
+  
+    <pointcut>
+        <api-platform-gw:api-pointcut apiName="{{ apiName }}" apiVersion="{{ apiVersionName }}"/>
+    </pointcut>
+    
+    <http:request-config name="HTTP_OAuth_Request_Configuration"
+		protocol="HTTPS" host="#[flowVars.host]" port="#[flowVars.port]" basePath=""
+		doc:name="HTTP Request Configuration" />
+	<ee:object-store-caching-strategy name="Caching_Strategy" keyGenerationExpression="#[flowVars.token]" doc:name="Caching Strategy">
+        <mule:in-memory-store name="validationStore" maxEntries="100" entryTTL="6000000" expirationInterval="1000"/>
+    </ee:object-store-caching-strategy>
+
+    <before>
+   		<mule:logger level="INFO" message="Executing AnypointMQ Access Policy." doc:name="Logger" category="com.example.anypointmq.policy"/>
+        <mule:message-filter onUnaccepted="queueNameNotSupplied">
+			<mule:expression-filter expression="#[message.inboundProperties['http.query.params']['queueName'] != null]" />
+		</mule:message-filter>
+		 <mule:message-filter onUnaccepted="authorizationNotSupplied">
+			<mule:expression-filter expression="#[message.inboundProperties['authorization'] != null]" />
+		</mule:message-filter>
+        <mule:logger level="INFO" message="Validated presence of queueName." doc:name="Logger" category="com.example.anypointmq.policy"/>
+        <mule:set-variable doc:name="Variable" value="#[payload]" variableName="payloadBkup"/>               
+       	<mule:set-variable doc:name="Variable" value="#[(message.inboundProperties['authorization']).replace('Bearer ','')]" variableName="token" />
+        <mule:set-variable doc:name="Variable" value="{{validationURL}}" variableName="url"/>
+       
+        <mule:logger level="DEBUG" message="OAuth token supplied is #[flowVars.token]" doc:name="Logger" category="com.example.anypointmq.policy" />
+        
+        <mule:expression-component doc:name="Expression"><![CDATA[
+			import java.net.URL;
+			
+			URL url = new URL(flowVars.url);
+			flowVars.host = url.getHost();
+			flowVars.uriPath = url.getPath();
+			flowVars.port = (url.getPort()==-1)?443:url.getPort();
+			]]>
+		</mule:expression-component>
+	    <dw:transform-message doc:name="Transform Message">
+			<dw:set-payload><![CDATA[%dw 1.0
+				%output application/java
+				---
+				{
+					token: flowVars.token,
+					grant_type: '{{ oauthGrantType }}',
+					client_secret: '{{ oauthClientSecret }}',
+					client_id : '{{ oauthClientID }}'
+				}]]></dw:set-payload>
+		</dw:transform-message>
+		
+		<mule:enricher doc:name="Message Enricher">		
+			<ee:cache cachingStrategy-ref="Caching_Strategy" doc:name="Cache">
+		       <mule:logger level="INFO" message="Validation result not found in cache, now calling Ping." doc:name="Logger" />
+
+				<http:request config-ref="HTTP_OAuth_Request_Configuration"
+					path="#[flowVars.uriPath]" method="POST" doc:name="HTTP">
+					<http:request-builder>
+						<http:header headerName="Content-Type"
+							value="application/x-www-form-urlencoded" />
+					</http:request-builder>
+					<http:success-status-code-validator
+						values="100..600" />
+				</http:request>
+				 <dw:transform-message doc:name="Transform Message">
+	                <dw:set-payload><![CDATA[%dw 1.0
+							%output application/java
+							---
+							payload]]></dw:set-payload>
+				 </dw:transform-message>
+			</ee:cache>
+			
+			<mule:enrich source="#[payload]" target="#[flowVars.validationResponse]" />
+			<mule:enrich source="#[message.inboundProperties.'http.status']"
+				target="#[flowVars.status]" />
+		</mule:enricher>
+
+	   <mule:message-filter onUnaccepted="invalidToken">
+			<mule:expression-filter expression="#[flowVars.status == 200]" />
+		</mule:message-filter>
+        <mule:set-payload value="#[flowVars.payloadBkup]" doc:name="Set Payload"/>
+   </before>
+
+     <mule:processor-chain name="invalidToken">
+        <mule:set-property propertyName="http.status" value="401"/>
+        <mule:set-property propertyName="Content-Type" value="application/json"/>
+			<dw:transform-message doc:name="Transform Message">       
+			<dw:set-payload><![CDATA[%dw 1.0
+			%output application/json
+			---
+			{
+				message : flowVars.validationResponse.error_description
+			}]]></dw:set-payload>
+		</dw:transform-message>
+    </mule:processor-chain>
+    
+    <mule:processor-chain name="queueNameNotSupplied">
+    	<mule:set-property propertyName="http.status" value="400" />
+    	<mule:set-property propertyName="Content-Type" value="application/json"/>
+			<dw:transform-message doc:name="Transform Message">       
+			<dw:set-payload><![CDATA[%dw 1.0
+			%output application/json
+			---
+			{
+				message : 'Query paramater \'queueName\' is required!'
+			}]]></dw:set-payload>
+		</dw:transform-message>    
+    </mule:processor-chain>
+    
+     <mule:processor-chain name="authorizationNotSupplied">
+    	<mule:set-property propertyName="http.status" value="400" />
+    	<mule:set-property propertyName="Content-Type" value="application/json"/>
+			<dw:transform-message doc:name="Transform Message">       
+			<dw:set-payload><![CDATA[%dw 1.0
+			%output application/json
+			---
+			{
+				message : 'Authorization header is required!'
+			}]]></dw:set-payload>
+		</dw:transform-message>
+    
+    </mule:processor-chain>
+    
+     <mule:processor-chain name="invalidScopes">
+        <mule:set-property propertyName="http.status" value="403"/>
+        <mule:set-property propertyName="Content-Type" value="application/json"/>
+			<dw:transform-message doc:name="Transform Message">       
+			<dw:set-payload><![CDATA[%dw 1.0
+			%output application/json
+			---
+			{
+				message : 'OAuth token is not valid for the requested queue access.'
+			}]]></dw:set-payload>
+		</dw:transform-message>
+    </mule:processor-chain>
+</policy>
